@@ -8,12 +8,23 @@ import pickle
 
 
 class BackTester:
+    """
+    Class to represent the stock back testing tool
+    """
     def __init__(self,
+                 
                  start_date=datetime(2010, 1, 1),
                  token="05jZzQcNaNnqkHnobe0X2txoIKWASFaysMLN3OGNpQMCfyf1BdJ3xJdGHcgv",
                  x1=20,
                  x2=55
                  ):
+        """
+        Constructor
+        :param start_date: start date to collect stock data from
+        :param token: worldtradingdata token
+        :param x1: time horizon 1 for trades
+        :param x2: time horizon 2 for trades
+        """
         self.token = token
         self.tickers = {"ftse100": np.genfromtxt('./data/ftse100.csv', dtype=str, delimiter=',', skip_header=1)}
         self.stocks = {}
@@ -22,25 +33,51 @@ class BackTester:
         self.x2 = x2
 
     def pickle_data(self, ticker, pickle_folder):
+        """
+        method to pickle stock data
+        :param ticker: stock ticker
+        :param pickle_folder: folder to save to
+        :return: 
+        """
         url = f"https://www.worldtradingdata.com/api/v1/history?symbol={ticker}&sort=newest&api_token={self.token}"
         data = subprocess.Popen(['curl', '-s', url], stdout=subprocess.PIPE).communicate()[0]
         data = pd.DataFrame.from_dict(json.loads(data.decode('utf-8'))["history"], orient='index')
-        pickle.dump(data, open(f"{pickle_folder}\{ticker}.p", "wb"))
+        pickle.dump(data, open(f"{pickle_folder}/{ticker}.p", "wb"))
 
     def add_data(self, ticker):
+        """
+        method to add stock data
+        :param ticker: stock ticker
+        :return: 
+        """
         url = f"https://www.worldtradingdata.com/api/v1/history?symbol={ticker}&sort=newest&api_token={self.token}"
         data = subprocess.Popen(['curl', '-s', url], stdout=subprocess.PIPE).communicate()[0]
         data = pd.DataFrame.from_dict(json.loads(data.decode('utf-8'))["history"], orient='index')
         self.stocks[ticker] = Stock(ticker, data)
 
     def calc_metrics(self, ticker):
+        """
+        method to calculate statistics on stock price history
+        :param ticker: stock ticker
+        :return: 
+        """
         self.stocks[ticker].calc_metrics(self.start_date, self.x1, self.x2)
 
     def back_test(self, ticker):
+        """
+        Method to generate trades based on historical prices
+        :param ticker: stock ticker
+        :return: 
+        """
         for index, row in self.stocks[ticker].data.iterrows():
             self.stocks[ticker].turtle_trade(row)
 
     def plot(self, ticker):
+        """
+        Merthod to plot strategy performance against buy and hold strategy
+        :param ticker: stock ticker
+        :return: 
+        """
         self.stocks[ticker].data["strategy_100000"] = self.stocks[ticker].data["strategy_100000"].fillna(method='ffill')
         self.stocks[ticker].data["buy_hold_100000"].plot(grid=True)
         self.stocks[ticker].data["strategy_100000"].plot(grid=True)
@@ -48,16 +85,33 @@ class BackTester:
         plt.close()
 
     def pickle_ftse100(self):
+        """
+        Method to pickle data for all FTSE100 stocks
+        :return: 
+        """
         for ticker in self.tickers["ftse100"]:
             self.pickle_data(ticker, './pickle/')
 
     def load_pickle(self, ticker):
+        """
+        load pickle data
+        :param ticker: stock ticker
+        :return: 
+        """
         with open(f"./pickle/{ticker}.p", 'rb') as handle:
             self.stocks[ticker] = Stock(ticker, pickle.load(handle))
 
 
 class Stock:
+    """
+    Class to represent a stock
+    """
     def __init__(self, ticker, data):
+        """
+        Constructor
+        :param ticker: stock ticker
+        :param data: stock data
+        """
         self.data = data
         self.ticker = ticker
         self.trades_open = []
@@ -69,6 +123,13 @@ class Stock:
         self.strategy_running = 100000
 
     def calc_metrics(self, start_date, x1, x2):
+        """
+        method to calculate statistics from historical stock prices
+        :param start_date: start date for stock data
+        :param x1: horizon 1 for moving averages, days
+        :param x2: horizon 2 for moving averages, days
+        :return: 
+        """
         self.data.index = pd.to_datetime(self.data.index)
         self.data = self.data.loc[lambda c: c.index >= start_date]
         self.data["date"] = self.data.index
@@ -106,9 +167,22 @@ class Stock:
         # self.data.set_index('date', inplace=True)
 
     def buy(self, date, price, units):
+        """
+        method to buy stock
+        :param date: date of purchase
+        :param price: price at purchase
+        :param units: number of units
+        :return: 
+        """
         self.trades_open.append(Trade(self.ticker, date, price, units))
 
     def sell_all_open_trades(self, sell_price, date):
+        """
+        method to sell all open trades
+        :param sell_price: sale price
+        :param date: sale date
+        :return: 
+        """
         while self.trades_open:
             trade = self.trades_open.pop()
             trade.sell_date = date
@@ -121,6 +195,11 @@ class Stock:
             self.data.loc[date, "strategy_100000"] = self.strategy_running
 
     def turtle_trade(self, row):
+        """
+        Method to execute the turtle trading strategy
+        :param row: row of one days stock data
+        :return: 
+        """
         if self.trades_open_count > 0:
             if row.low < row.low_20d:
                 self.sell_all_open_trades(row.low_20d, row.date)
@@ -141,7 +220,17 @@ class Stock:
 
 
 class Trade:
+    """
+    Class to represent a trade
+    """
     def __init__(self, ticker, date, price, units):
+        """
+        constructor
+        :param ticker: stock ticker
+        :param date: date of purchase
+        :param price: price at purchase
+        :param units: number of units
+        """
         self.ticker = ticker
         self.buy_date = date
         self.units = units
@@ -158,11 +247,8 @@ if __name__ == "__main__":
     bt = BackTester(start_date=datetime(2010, 1, 1),
                     x1=20,
                     x2=55)
-    #bt.pickle_ftse100()
-    #ticker = "CLLN.L"
     for ticker in bt.tickers["ftse100"]:
         bt.load_pickle(ticker)
         bt.calc_metrics(ticker)
         bt.back_test(ticker)
         bt.plot(ticker)
-        a = 22
